@@ -2,39 +2,58 @@ name: Trigger Embedding Notebook
 
 on:
   push:
-    branches: [ main ]
     paths:
       - "Articles.csv"
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
   trigger:
     runs-on: ubuntu-latest
+    timeout-minutes: 180   # ⬅️ let this job run up to 3h
+    env:
+      WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}       # e.g. https://abcde.trycloudflare.com
+      WEBHOOK_TOKEN: ${{ secrets.WEBHOOK_TOKEN }}
+
     steps:
-      - name: Health check (up to 5x)
-        env:
-          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}   # e.g. https://abc123.trycloudflare.com
+      - name: Normalize base URL
+        shell: bash
         run: |
-          set -e
-          for i in {1..5}; do
-            echo "Health check ($i/5)…"
-            if curl -fsS "$WEBHOOK_URL/healthz" > /dev/null; then
-              echo "OK"; exit 0
-            fi
+          RAW="${WEBHOOK_URL//$'\n'/}"; RAW="${RAW//$'\r'/}"
+          RAW="${RAW#http://}"; RAW="${RAW#https://}"
+          echo "BASE=https://${RAW%%/*}" >> $GITHUB_ENV
+          echo "Using BASE=$BASE"
+
+      - name: Health check (up to 2 min)
+        run: |
+          for i in {1..24}; do
+            if curl -fsS "$BASE/healthz" >/dev/null; then exit 0; fi
             sleep 5
           done
           echo "Health endpoint not reachable"; exit 1
 
-      - name: Trigger refresh
-        env:
-          WEBHOOK_URL:   ${{ secrets.WEBHOOK_URL }}
-          WEBHOOK_TOKEN: ${{ secrets.WEBHOOK_TOKEN }}
+      - name: Queue refresh (returns 202 quickly)
         run: |
-          echo "POST $WEBHOOK_URL/refresh"
-          curl -sS -D headers.txt -o body.txt -X POST \
-               -H "X-Webhook-Token: $WEBHOOK_TOKEN" \
-               "$WEBHOOK_URL/refresh"
-          echo "---- headers ----"; cat headers.txt
-          echo "---- body ----"; cat body.txt
-          CODE=$(grep HTTP headers.txt | tail -1 | awk '{print $2}')
-          [ "$CODE" -ge 200 ] && [ "$CODE" -lt 300 ] || { echo "Non-2xx: $CODE"; exit 1; }
+          curl -fsS -X POST "$BASE/refresh" \
+            -H "X-Webhook-Token: ${WEBHOOK_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{}' || exit 1
+
+      - name: Poll status until done (max 150 min)
+        run: |
+          TIMEOUT=$((150*60))     # ⬅️ wait up to 2.5h for big runs
+          START=$(date +%s)
+          while true; do
+            ELAPSED=$(( $(date +%s) - START ))
+            if [ $ELAPSED -ge $TIMEOUT ]; then
+              echo "Timed out waiting for build"; exit 1
+            fi
+            J=$(curl -fsS "$BASE/status")
+            echo "$J"
+            STATE=$(echo "$J" | jq -r '.state')
+            if [ "$STATE" = "done" ]; then
+              echo "✅ Build finished"; exit 0
+            elif [ "$STATE" = "error" ]; then
+              echo "❌ Build error"; exit 1
+            fi
+            sleep 20             # ⬅️ poll every 20s
+          done
