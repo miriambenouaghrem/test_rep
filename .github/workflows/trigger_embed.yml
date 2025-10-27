@@ -11,4 +11,4 @@ jobs:
     steps:
       - name: Notify Colab webhook
         run: |
-          curl -X POST https://3f12-35-238-100-53.ngrok.io/refresh
+          curl -X POST https://0526761a6af6.ngrok-free.app/refresh
