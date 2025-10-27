@@ -2,8 +2,10 @@ name: Trigger Embedding Notebook
 
 on:
   push:
+    branches: [ main ]
     paths:
-      - "Articles.csv"
+      - "Articles.csv"           # match the exact filename/case
+  workflow_dispatch: {}          # allow manual run
 
 jobs:
   trigger:
@@ -11,4 +13,5 @@ jobs:
     steps:
       - name: Notify Colab webhook
         run: |
-          curl -X POST https://0526761a6af6.ngrok-free.app/refresh
+          echo "Notifying Colab webhook..."
+          curl -sS -X POST https://0526761a6af6.ngrok-free.app/refresh
