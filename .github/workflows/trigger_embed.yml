@@ -9,9 +9,9 @@ on:
 jobs:
   trigger:
     runs-on: ubuntu-latest
-    timeout-minutes: 180   # ⬅️ let this job run up to 3h
+    timeout-minutes: 180
     env:
-      WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}       # e.g. https://abcde.trycloudflare.com
+      WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}   # e.g. https://abcde.trycloudflare.com
       WEBHOOK_TOKEN: ${{ secrets.WEBHOOK_TOKEN }}
 
     steps:
@@ -22,6 +22,9 @@ jobs:
           RAW="${RAW#http://}"; RAW="${RAW#https://}"
           echo "BASE=https://${RAW%%/*}" >> $GITHUB_ENV
           echo "Using BASE=$BASE"
+
+      - name: Ensure jq is installed
+        run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Health check (up to 2 min)
         run: |
@@ -40,20 +43,25 @@ jobs:
 
       - name: Poll status until done (max 150 min)
         run: |
-          TIMEOUT=$((150*60))     # ⬅️ wait up to 2.5h for big runs
+          TIMEOUT=$((150*60))
           START=$(date +%s)
           while true; do
             ELAPSED=$(( $(date +%s) - START ))
             if [ $ELAPSED -ge $TIMEOUT ]; then
               echo "Timed out waiting for build"; exit 1
             fi
-            J=$(curl -fsS "$BASE/status")
+
+            J=$(curl -fsS "$BASE/status" || echo '{}')
             echo "$J"
-            STATE=$(echo "$J" | jq -r '.state')
+
+            # Prefer live job_state; fall back to persisted.state
+            STATE=$(echo "$J" | jq -r '.job_state // .persisted.state // "unknown"')
+
             if [ "$STATE" = "done" ]; then
               echo "✅ Build finished"; exit 0
             elif [ "$STATE" = "error" ]; then
               echo "❌ Build error"; exit 1
             fi
-            sleep 20             # ⬅️ poll every 20s
+
+            sleep 20
           done
