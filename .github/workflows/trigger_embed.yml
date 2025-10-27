@@ -1,0 +1,14 @@
+name: Trigger Embedding Notebook
+
+on:
+  push:
+    paths:
+      - "Articles.csv"
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Colab webhook
+        run: |
+          curl -X POST https://3f12-35-238-100-53.ngrok.io/refresh
