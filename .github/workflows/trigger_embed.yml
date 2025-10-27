@@ -4,14 +4,23 @@ on:
   push:
     branches: [ main ]
     paths:
-      - "Articles.csv"           # match the exact filename/case
-  workflow_dispatch: {}          # allow manual run
+      - "Articles.csv"
+  workflow_dispatch: {}
 
 jobs:
   trigger:
     runs-on: ubuntu-latest
     steps:
       - name: Notify Colab webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
         run: |
-          echo "Notifying Colab webhook..."
-          curl -sS -X POST https://0526761a6af6.ngrok-free.app/refresh
+          echo "POST $WEBHOOK_URL"
+          # Show response and fail if not 2xx
+          curl -sS -D headers.txt -o body.txt -X POST "$WEBHOOK_URL"
+          echo "---- headers ----"; cat headers.txt
+          echo "---- body ----"; cat body.txt
+          CODE=$(grep HTTP headers.txt | tail -1 | awk '{print $2}')
+          if [ "${CODE}" -lt 200 ] || [ "${CODE}" -ge 300 ]; then
+            echo "Non-2xx: $CODE"; exit 1
+          fi
